@@ -11,11 +11,11 @@ router.post('/', [MeasurementMiddleware.AddMeasurement], (req, res) => {
     }
 });
 
-router.get('/:user_id', [MeasurementMiddleware.GetMeasurements], (req, res) => {
+router.get('/history', [MeasurementMiddleware.GetMeasurementHistory], (req, res) => {
     if (req.success) {
         res.status(200).json({ msg: "ok", data: req.measurements });
     } else {
-        res.status(500).json({ message: "Error retrieving measurements" });
+        res.status(500).json({ message: "Error retrieving measurement history" });
     }
 });
 
