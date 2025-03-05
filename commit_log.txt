@@ -1,0 +1,762 @@
+in this page i gave you all the commits you need including the comments and the codes 
+
+Commit numbers
+File names
+Hebrew descriptions
+Code snippets for each comm
+
+
+**************************************************************************************************************************************
+Commit #1 - server.js
+"אתחול הפרויקט והגדרת שרת Express"
+
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+const userRouters = require('./routes/userRoutes');
+const measurementRoutes = require('./routes/measurementRoutes');
+app.use('/api/users', userRouters);
+app.use('/api/measurements', measurementRoutes);
+
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger/swaggerConfig');
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+
+**************************************************************************************************************************************
+
+ Commit #2 - config/db.js
+ "הגדרת חיבור למסד הנתונים MySQL"
+
+const mysql = require('mysql2');
+
+const db = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
+module.exports = db;
+
+**************************************************************************************************************************************
+
+ Commit #3 - .env
+"משתני סביבה להגדרת מסד הנתונים"
+
+DB_HOST=localhost
+DB_USER=root
+DB_PASS=yourpassword
+DB_NAME=blood_pressure_tracker
+PORT=3000
+
+**************************************************************************************************************************************
+
+
+ Commit #4 - routes/userRoutes.js
+
+"יצירת קובץ ניתוב למשתמשים"
+
+const express = require('express');
+const router = express.Router();
+
+module.exports = router;
+
+
+**************************************************************************************************************************************
+
+
+ Commit #5 - routes/measurementRoutes.js
+
+ "יצירת קובץ ניתוב למדידות"
+
+const express = require('express');
+const router = express.Router();
+
+module.exports = router;
+
+**************************************************************************************************************************************
+
+
+
+Commit #6 - server.js
+"הוספת בדיקת חיבור למסד הנתונים MySQL"
+
+const db = require('./config/db');
+
+db.query("SELECT 1", (err, result) => {
+    if (err) {
+        console.error("Database connection failed:", err);
+    } else {
+        console.log(" Connected to MySQL database!");
+    }
+});
+
+
+**************************************************************************************************************************************
+
+
+Commit #7 - middleware/userMiddleware.js
+ "Middleware לניהול משתמשים - הוספת משתמשים ושליפת נתונים"
+
+const db = require('../config/db');
+
+async function AddUser(req, res, next) {
+    let name = req.body.name;
+
+    let Query = "INSERT INTO `users` (`name`) VALUES (?);";
+    const promisePool = db.promise();
+    let rows = [];
+    try {
+        [rows] = await promisePool.query(Query, [name]);
+        req.insertId = rows.insertId;
+        req.success = true;
+    } catch (err) {
+        req.success = false;
+        console.log(err);
+    }
+    next();
+}
+
+async function GetUsers(req, res, next) {
+    let Query = "SELECT * FROM users;";
+    const promisePool = db.promise();
+    let rows = [];
+    try {
+        [rows] = await promisePool.query(Query);
+        req.success = true;
+        req.users = rows;
+    } catch (err) {
+        req.success = false;
+        console.log(err);
+    }
+    next();
+}
+
+module.exports = { AddUser, GetUsers };
+
+**************************************************************************************************************************************
+
+// Commit #8 - routes/userRoutes.js
+// "הוספת ניתובים לניהול משתמשים - יצירה ושליפה"
+
+const express = require('express');
+const router = express.Router();
+const UserMiddleware = require('../middleware/userMiddleware');
+
+router.post('/', [UserMiddleware.AddUser], (req, res) => {
+    if (req.success) {
+        res.status(200).json({ msg: "ok", Last_Id: req.insertId });
+    } else {
+        res.status(500).json({ message: "Error adding user" });
+    }
+});
+
+router.get('/', [UserMiddleware.GetUsers], (req, res) => {
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.users });
+    } else {
+        res.status(500).json({ message: "Error retrieving users" });
+    }
+});
+
+module.exports = router;
+
+
+**************************************************************************************************************************************
+
+// Commit #9 - middleware/measurementMiddleware.js
+// "Middleware לניהול מדידות לחץ דם - הוספה ושליפה"
+
+const db = require('../config/db');
+
+async function AddMeasurement(req, res, next) {
+    let { user_id, systolic, diastolic, pulse } = req.body;
+
+    if (!user_id || !systolic || !diastolic || !pulse) {
+        return res.status(400).json({ message: "חובה לספק מזהה משתמש, ערכים סיסטוליים ודיאסטוליים, ודופק" });
+    }
+
+    let Query = `INSERT INTO measurements (user_id, systolic, diastolic, pulse) VALUES (?, ?, ?, ?);`;
+    const promisePool = db.promise();
+    let rows = [];
+    try {
+        [rows] = await promisePool.query(Query, [user_id, systolic, diastolic, pulse]);
+        req.insertId = rows.insertId;
+        req.success = true;
+    } catch (err) {
+        req.success = false;
+        console.error("Database error:", err);
+        return res.status(500).json({ message: "Database error" });
+    }
+    next();
+}
+
+async function GetMeasurements(req, res, next) {
+    let user_id = req.params.user_id;
+    if (!user_id) {
+        return res.status(400).json({ message: "חובה לספק מזהה משתמש" });
+    }
+
+    let Query = "SELECT * FROM measurements WHERE user_id = ? ORDER BY date DESC;";
+    const promisePool = db.promise();
+    let rows = [];
+    try {
+        [rows] = await promisePool.query(Query, [user_id]);
+        req.success = true;
+        req.measurements = rows;
+    } catch (err) {
+        req.success = false;
+        console.error("Database error:", err);
+        return res.status(500).json({ message: "Database error" });
+    }
+    next();
+}
+
+module.exports = { AddMeasurement, GetMeasurements };
+
+
+**************************************************************************************************************************************
+ Commit #10 - routes/measurementRoutes.js
+ "הוספת ניתובים לניהול מדידות לחץ דם - יצירה ושליפה"
+
+const express = require('express');
+const router = express.Router();
+const MeasurementMiddleware = require('../middleware/measurementMiddleware');
+
+router.post('/', [MeasurementMiddleware.AddMeasurement], (req, res) => {
+    if (req.success) {
+        res.status(200).json({ msg: "ok", Last_Id: req.insertId });
+    } else {
+        res.status(500).json({ message: "Error adding measurement" });
+    }
+});
+
+router.get('/:user_id', [MeasurementMiddleware.GetMeasurements], (req, res) => {
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.measurements });
+    } else {
+        res.status(500).json({ message: "Error retrieving measurements" });
+    }
+});
+
+module.exports = router;
+
+
+**************************************************************************************************************************************
+
+Commit #11 - middleware/measurementMiddleware.js
+"שליפת היסטוריית מדידות ולסמן מדידות שחורגות ב-20% מהממוצע"
+
+async function GetMeasurementHistory(req, res, next) {
+    let { user_id, start_date, end_date } = req.query;
+
+    if (!user_id || !start_date || !end_date) {
+        return res.status(400).json({ message: "חובה לספק מזהה משתמש, תאריך התחלה ותאריך סיום" });
+    }
+
+     let Query = "SELECT * FROM measurements WHERE user_id = ? AND DATE(date) BETWEEN ? AND ? ORDER BY date DESC;";
+    const promisePool = db.promise();
+    let rows = [];
+    try {
+        [rows] = await promisePool.query(Query, [user_id, start_date, end_date]);
+
+        let totalSystolic = 0, totalDiastolic = 0, count = rows.length;
+        rows.forEach(m => {
+            totalSystolic += m.systolic;
+            totalDiastolic += m.diastolic;
+        });
+
+        if (count === 0) {
+            req.success = true;
+            req.measurements = [];
+            return next();
+        }
+
+        let avgSystolic = totalSystolic / count;
+        let avgDiastolic = totalDiastolic / count;
+
+        rows = rows.map(m => {
+            m.is_abnormal = (m.systolic > avgSystolic * 1.2 || m.diastolic > avgDiastolic * 1.2);
+            return m;
+        });
+
+        req.success = true;
+        req.measurements = rows;
+    } catch (err) {
+        req.success = false;
+        console.error("Database error:", err);
+        return res.status(500).json({ message: "Database error" });
+    }
+    next();
+}
+
+**************************************************************************************************************************************
+
+Commit #12 - routes/measurementRoutes.js
+"הוספת נתיב להיסטוריית מדידות עם סימון ערכים שחורגים מהממוצע"
+
+router.get('/history', [MeasurementMiddleware.GetMeasurementHistory], (req, res) => {
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.measurements });
+    } else {
+        res.status(500).json({ message: "Error retrieving measurement history" });
+    }
+});
+
+**************************************************************************************************************************************
+
+Commit #13 - routes/measurementRoutes.js
+"תיקון סדר הנתיבים למניעת בליעת הנתיב /history"
+- הוזז הנתיב '/history' לפני הנתיב הדינמי '/:user_id'.
+- הבעיה נגרמה מכך ש- '/:user_id' תפס את '/history' כערך user_id שגוי.
+- כעת הקריאה להיסטוריית מדידות פועלת כראוי.
+
+🔹 שינוי הקוד:
+לפני (שגוי):
+----------------------
+router.get('/:user_id', [MeasurementMiddleware.GetMeasurements], (req, res) => {  
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.measurements });
+    } else {
+        res.status(500).json({ message: "Error retrieving measurements" });
+    }
+});
+
+router.get('/history', [MeasurementMiddleware.GetMeasurementHistory], (req, res) => {  
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.measurements });
+    } else {
+        res.status(500).json({ message: "Error retrieving measurement history" });
+    }
+});
+
+----------------------
+
+אחרי (תוקן):
+----------------------
+router.get('/history', [MeasurementMiddleware.GetMeasurementHistory], (req, res) => {  
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.measurements });
+    } else {
+        res.status(500).json({ message: "Error retrieving measurement history" });
+    }
+});
+
+router.get('/:user_id', [MeasurementMiddleware.GetMeasurements], (req, res) => {  
+    if (req.success) {
+        res.status(200).json({ msg: "ok", data: req.measurements });
+    } else {
+        res.status(500).json({ message: "Error retrieving measurements" });
+    }
+});
+----------------------
+
+
+**************************************************************************************************************************************
+
+
+Commit #14 - middleware/measurementMiddleware.js
+"הוספת חישוב ממוצע חודשי ולספירת מדידות חריגות"
+- נוספה פונקציה חדשה GetMonthlySummary לחישוב ממוצע לחץ דם חודשי לכל משתמש.
+- מחשבת ממוצע סיסטולי ודיאסטולי לכל משתמש בחודש נתון.
+- סופרת כמה מדידות חורגות ב-20% מהממוצע לכל משתמש באותו חודש.
+
+🔹 קוד שהוסף:
+----------------------
+async function GetMonthlySummary(req, res, next) {
+    let { year, month } = req.params;
+
+    if (!year || !month) {
+        return res.status(400).json({ message: "חובה לספק שנה וחודש" });
+    }
+
+    let Query = `
+        SELECT 
+            user_id, 
+            ROUND(AVG(systolic), 2) AS avg_systolic, 
+            ROUND(AVG(diastolic), 2) AS avg_diastolic,
+            SUM(CASE 
+                WHEN systolic > (SELECT AVG(systolic) * 1.2 FROM measurements) 
+                OR diastolic > (SELECT AVG(diastolic) * 1.2 FROM measurements) 
+                THEN 1 
+                ELSE 0 
+            END) AS abnormal_count
+        FROM measurements
+        WHERE YEAR(date) = ? AND MONTH(date) = ?
+        GROUP BY user_id
+        ORDER BY user_id;
+    `;
+
+    console.log("Running Monthly Summary Query:", Query, [year, month]);
+
+    const promisePool = db.promise();
+    let rows = [];
+    try {
+        [rows] = await promisePool.query(Query, [year, month]);
+        req.success = true;
+        req.summary = rows;
+    } catch (err) {
+        req.success = false;
+        console.error("Database error:", err);
+        return res.status(500).json({ message: "Database error" });
+    }
+    next();
+}
+module.exports = { 
+    AddMeasurement, 
+    GetMeasurements, 
+    GetMeasurementHistory, 
+    GetMonthlySummary 
+};
+----------------------
+**************************************************************************************************************************************
+Commit #15 - generate-swagger.js
+"הוספת תיעוד אוטומטי ל-API עם SwaggerAutogen"
+// note run the command node generate-swagger.js so you can get the swagger-output.json
+const swaggerAutogen = require('swagger-autogen')();
+
+const doc = {
+    info: {
+        title: "Blood Pressure Tracker API",
+        description: "תיעוד API לתוכנת מעקב לחץ דם"
+    },
+    host: `localhost:${process.env.PORT || 3000}`,
+    schemes: ["http"]
+};
+
+const swaggerOutputFile = './swagger-output.json';
+const routes = ['./server.js'];
+
+swaggerAutogen(swaggerOutputFile, routes, doc).then(() => {
+    console.log("✅ Swagger documentation generated successfully!");
+});
+
+**************************************************************************************************************************************
+Commit #16 - swagger-output.json
+"הוספת קובץ פלט של Swagger"
+// note this code will be auto genereated once when we run this commant node generate-swagger.js
+
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Blood Pressure Tracker API",
+    "description": "תיעוד API לתוכנת מעקב לחץ דם",
+    "version": "1.0.0"
+  },
+  "host": "localhost:3000",
+  "basePath": "/",
+  "schemes": [
+    "http"
+  ],
+  "paths": {
+    "/api/users/": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "get": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/measurements/": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "example": "any"
+                },
+                "systolic": {
+                  "example": "any"
+                },
+                "diastolic": {
+                  "example": "any"
+                },
+                "pulse": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/measurements/history": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/measurements/summary/{year}/{month}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "month",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/measurements/{user_id}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+**************************************************************************************************************************************
+
+
+Commit #17 - database export
+"הוספת קובץ יצוא מסד הנתונים לבדיקות"
+- הוספת קובץ SQL הכולל את מבנה הטבלאות והנתונים.
+- מאפשר להריץ את הקוד עם הנתונים לבדיקות.
+
+-- phpMyAdmin SQL Dump
+-- version 5.2.1
+-- https://www.phpmyadmin.net/
+--
+-- Host: 127.0.0.1
+-- Generation Time: Mar 04, 2025 at 10:00 PM
+-- Server version: 10.4.32-MariaDB
+-- PHP Version: 8.2.12
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
+--
+-- Database: `blood_pressure_tracker`
+--
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `measurements`
+--
+
+CREATE TABLE `measurements` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `systolic` int(11) NOT NULL,
+  `diastolic` int(11) NOT NULL,
+  `pulse` int(11) NOT NULL,
+  `date` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `measurements`
+--
+
+INSERT INTO `measurements` (`id`, `user_id`, `systolic`, `diastolic`, `pulse`, `date`) VALUES
+(1, 1, 120, 80, 75, '2025-03-04 21:21:33'),
+(2, 2, 140, 60, 30, '2025-03-04 22:01:16');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `users`
+--
+
+CREATE TABLE `users` (
+  `id` int(11) NOT NULL,
+  `name` varchar(255) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `users`
+--
+
+INSERT INTO `users` (`id`, `name`) VALUES
+(1, 'David Cohen'),
+(2, 'Han Chen');
+
+--
+-- Indexes for dumped tables
+--
+
+--
+-- Indexes for table `measurements`
+--
+ALTER TABLE `measurements`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `user_id` (`user_id`);
+
+--
+-- Indexes for table `users`
+--
+ALTER TABLE `users`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `name` (`name`);
+
+--
+-- AUTO_INCREMENT for dumped tables
+--
+
+--
+-- AUTO_INCREMENT for table `measurements`
+--
+ALTER TABLE `measurements`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
+-- AUTO_INCREMENT for table `users`
+--
+ALTER TABLE `users`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
+-- Constraints for dumped tables
+--
+
+--
+-- Constraints for table `measurements`
+--
+ALTER TABLE `measurements`
+  ADD CONSTRAINT `measurements_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+**************************************************************************************************************************************
