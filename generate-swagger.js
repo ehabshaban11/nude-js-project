@@ -10,7 +10,7 @@ const doc = {
 };
 
 const swaggerOutputFile = './swagger-output.json';
-const routes = ['./server.js']; 
+const routes = ['./server.js'];
 
 swaggerAutogen(swaggerOutputFile, routes, doc).then(() => {
     console.log("✅ Swagger documentation generated successfully!");
